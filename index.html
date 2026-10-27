@@ -133,7 +133,15 @@ section, h2 descubre videos en Dino, p historias, emociones y momentos que nos c
       }
     });
   </script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+  const SUPABASE_URL = 'https://vlshhaarprrddzffrbsr.supabase.co/rest/v1/';
+  const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_A-jWpub5-oPjDXd9Zw-BJg_49AJdC9Q';
+  const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+</script>
+  
 </body>
+  
 </html>
 input type igual a email, placeholder igual a correo,
 input type igual a password, placeholder igual a contraseña,
