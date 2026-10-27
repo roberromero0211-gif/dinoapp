@@ -105,11 +105,7 @@ section, h2 descubre videos en Dino, p historias, emociones y momentos que nos c
   </footer>
 
   <script>
-    function crearCuenta() {
-      alert(
-        "¡Bienvenido a Dino! " +
-        "La creación de cuentas estará disponible " +
-        "en una próxima versión."
+    
       );
     }
 
@@ -138,6 +134,30 @@ section, h2 descubre videos en Dino, p historias, emociones y momentos que nos c
   const SUPABASE_URL = 'https://vlshhaarprrddzffrbsr.supabase.co
   const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_A-jWpub5-oPjDXd9Zw-BJg_49AJdC9Q';
   const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+    async function crearCuenta() {
+  const email = prompt("Escribe tu correo electrónico:");
+  if (!email) return;
+
+  const password = prompt("Crea una contraseña de mínimo 6 caracteres:");
+  if (!password) return;
+
+  if (password.length < 6) {
+    alert("La contraseña debe tener mínimo 6 caracteres.");
+    return;
+  }
+
+  const { data, error } = await supabaseClient.auth.signUp({
+    email: email,
+    password: password
+  });
+
+  if (error) {
+    alert("Error: " + error.message);
+    return;
+  }
+
+  alert("¡Cuenta creada! Revisa tu correo si Supabase te pide confirmar tu cuenta.");
+}
 </script>
   
 </body>
