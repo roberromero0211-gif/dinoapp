@@ -476,5 +476,187 @@
 
     iniciar();
   </script>
+  <section class="tarjeta" aria-labelledby="tituloGaleria">
+    <h2 id="tituloGaleria">🎬 Descubre videos en Dino</h2>
+
+    <button type="button" id="actualizarGaleria">
+      Actualizar videos
+    </button>
+
+    <p id="estadoGaleria" class="mensaje" role="status"></p>
+
+    <div id="galeriaDino"></div>
+
+    <button type="button" id="masVideos" hidden>
+      Ver más videos
+    </button>
+  </section>
+
+  <script>
+    (function () {
+      const galeria = document.getElementById("galeriaDino");
+      const mensaje = document.getElementById("estadoGaleria");
+      const actualizar = document.getElementById("actualizarGaleria");
+      const mas = document.getElementById("masVideos");
+
+      let videos = [];
+      let mostrados = 0;
+      let cargando = false;
+
+      async function leerCarpeta(ruta) {
+        const elementos = [];
+        let offset = 0;
+
+        while (true) {
+          const { data, error } = await cliente.storage
+            .from("videos")
+            .list(ruta, {
+              limit: 100,
+              offset: offset,
+              sortBy: { column: "name", order: "asc" }
+            });
+
+          if (error) throw error;
+
+          const pagina = data || [];
+          elementos.push(...pagina);
+
+          if (pagina.length < 100) break;
+          offset += pagina.length;
+        }
+
+        return elementos;
+      }
+
+      function mostrarMas() {
+        const siguientes = videos.slice(mostrados, mostrados + 12);
+
+        for (const archivo of siguientes) {
+          const tarjeta = document.createElement("article");
+          tarjeta.style.margin = "24px 0";
+
+          const numero = document.createElement("h3");
+          numero.textContent = "Video " + (mostrados + 1);
+
+          const { data } = cliente.storage
+            .from("videos")
+            .getPublicUrl(archivo.ruta);
+
+          const video = document.createElement("video");
+          video.controls = true;
+          video.playsInline = true;
+          video.preload = "none";
+          video.src = data.publicUrl;
+          video.setAttribute("aria-label", numero.textContent);
+
+          video.addEventListener("play", function () {
+            galeria.querySelectorAll("video").forEach(function (otro) {
+              if (otro !== video) otro.pause();
+            });
+          });
+
+          const aviso = document.createElement("p");
+          aviso.hidden = true;
+
+          video.addEventListener("error", function () {
+            aviso.hidden = false;
+            aviso.textContent =
+              "Este video no se puede reproducir en tu navegador.";
+          });
+
+          const compartir = document.createElement("a");
+          compartir.href = data.publicUrl;
+          compartir.target = "_blank";
+          compartir.rel = "noopener noreferrer";
+          compartir.textContent = "Abrir o compartir este video";
+
+          tarjeta.append(numero, video, aviso, compartir);
+          galeria.appendChild(tarjeta);
+          mostrados++;
+        }
+
+        mas.hidden = mostrados >= videos.length;
+
+        mensaje.textContent = videos.length
+          ? "Mostrando " + mostrados + " de " + videos.length + " videos."
+          : "Todavía no hay videos publicados.";
+      }
+
+      async function cargarGaleria() {
+        if (cargando) return;
+
+        if (typeof cliente === "undefined" || !cliente) {
+          mensaje.textContent =
+            "No se pudo conectar. Recarga la página e intenta otra vez.";
+          return;
+        }
+
+        cargando = true;
+        actualizar.disabled = true;
+        mas.disabled = true;
+        mensaje.textContent = "Buscando videos…";
+
+        try {
+          const encontrados = [];
+          const carpetas = [""];
+
+          while (carpetas.length) {
+            const ruta = carpetas.shift();
+            const elementos = await leerCarpeta(ruta);
+
+            for (const elemento of elementos) {
+              const rutaCompleta = ruta
+                ? ruta + "/" + elemento.name
+                : elemento.name;
+
+              if (elemento.id === null) {
+                carpetas.push(rutaCompleta);
+              } else {
+                const tipo = elemento.metadata?.mimetype || "";
+
+                if (
+                  tipo.startsWith("video/") ||
+                  /\.(mp4|webm|mov|m4v|ogv|ogg)$/i.test(elemento.name)
+                ) {
+                  encontrados.push({
+                    ruta: rutaCompleta,
+                    fecha: Date.parse(elemento.created_at || "") || 0
+                  });
+                }
+              }
+            }
+          }
+
+          encontrados.sort(function (a, b) {
+            return b.fecha - a.fecha || a.ruta.localeCompare(b.ruta);
+          });
+
+          galeria.querySelectorAll("video").forEach(function (video) {
+            video.pause();
+            video.removeAttribute("src");
+            video.load();
+          });
+
+          galeria.replaceChildren();
+          videos = encontrados;
+          mostrados = 0;
+          mostrarMas();
+        } catch (error) {
+          mensaje.textContent =
+            "No se pudo cargar la galería: " +
+            (error.message || "Revisa tu conexión e intenta otra vez.");
+        } finally {
+          cargando = false;
+          actualizar.disabled = false;
+          mas.disabled = false;
+        }
+      }
+
+      actualizar.addEventListener("click", cargarGaleria);
+      mas.addEventListener("click", mostrarMas);
+
+      cargarGaleria();
+    })();
+  </script>
 </body>
 </html>
