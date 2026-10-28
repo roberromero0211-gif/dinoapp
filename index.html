@@ -658,5 +658,342 @@
       cargarGaleria();
     })();
   </script>
+  <script>
+(function () {
+  const galeria = document.getElementById("galeriaDino");
+
+  if (!galeria || typeof cliente === "undefined" || !cliente) return;
+  if (galeria.dataset.interacciones === "listas") return;
+
+  galeria.dataset.interacciones = "listas";
+  const preparadas = new WeakSet();
+
+  function crearElemento(tipo, texto) {
+    const elemento = document.createElement(tipo);
+    if (texto) elemento.textContent = texto;
+    return elemento;
+  }
+
+  async function usuarioActual() {
+    const { data, error } = await cliente.auth.getUser();
+    if (error || !data.user) {
+      throw new Error("Inicia sesión en Dino para participar.");
+    }
+    return data.user;
+  }
+
+  function preparar(tarjeta) {
+    if (preparadas.has(tarjeta)) return;
+
+    const enlace = tarjeta.querySelector("a");
+    if (!enlace) return;
+
+    const prefijo = "/storage/v1/object/public/videos/";
+    const direccion = new URL(enlace.href);
+    if (!direccion.pathname.startsWith(prefijo)) return;
+
+    const ruta = decodeURIComponent(
+      direccion.pathname.slice(prefijo.length)
+    );
+
+    preparadas.add(tarjeta);
+
+    const zona = crearElemento("div");
+    zona.style.marginTop = "20px";
+
+    const botonLike = crearElemento("button", "❤️ Me gusta");
+    botonLike.type = "button";
+
+    const avisoLike = crearElemento("p");
+    avisoLike.setAttribute("role", "status");
+
+    const detalles = crearElemento("details");
+    const resumen = crearElemento("summary", "💬 Comentarios");
+    resumen.style.cursor = "pointer";
+    resumen.style.padding = "12px";
+
+    const lista = crearElemento("div");
+
+    const actualizar = crearElemento("button", "Actualizar comentarios");
+    actualizar.type = "button";
+
+    const mas = crearElemento("button", "Ver más comentarios");
+    mas.type = "button";
+    mas.hidden = true;
+
+    const formulario = crearElemento("form");
+    const etiqueta = crearElemento("label", "Escribe un comentario público");
+
+    const texto = crearElemento("textarea");
+    texto.rows = 3;
+    texto.maxLength = 1000;
+    texto.required = true;
+    texto.placeholder = "Tu comentario…";
+    texto.style.width = "100%";
+    texto.style.padding = "12px";
+    texto.style.fontSize = "16px";
+    texto.style.borderRadius = "8px";
+    texto.style.background = "#222";
+    texto.style.color = "white";
+
+    etiqueta.appendChild(texto);
+
+    const enviar = crearElemento("button", "Publicar comentario");
+    enviar.type = "submit";
+
+    const aviso = crearElemento("p");
+    aviso.setAttribute("role", "status");
+    aviso.style.overflowWrap = "anywhere";
+
+    formulario.append(etiqueta, enviar);
+    detalles.append(resumen, actualizar, lista, mas, formulario, aviso);
+    zona.append(botonLike, avisoLike, detalles);
+    tarjeta.appendChild(zona);
+
+    let likeOcupado = false;
+    let comentariosOcupados = false;
+    let offset = 0;
+    const botonesBorrar = new Set();
+
+    async function actualizarLikes() {
+      const { count, error } = await cliente
+        .from("dino_likes")
+        .select("*", { count: "exact", head: true })
+        .eq("video_path", ruta);
+
+      if (error) throw error;
+      botonLike.textContent = "❤️ Me gusta · " + count;
+    }
+
+    botonLike.addEventListener("click", async function () {
+      if (likeOcupado) return;
+      likeOcupado = true;
+      botonLike.disabled = true;
+      avisoLike.textContent = "";
+
+      try {
+        const usuario = await usuarioActual();
+
+        const { data: existente, error: errorConsulta } = await cliente
+          .from("dino_likes")
+          .select("user_id")
+          .eq("video_path", ruta)
+          .eq("user_id", usuario.id)
+          .maybeSingle();
+
+        if (errorConsulta) throw errorConsulta;
+
+        const respuesta = existente
+          ? await cliente.from("dino_likes").delete()
+              .eq("video_path", ruta)
+              .eq("user_id", usuario.id)
+          : await cliente.from("dino_likes").insert({
+              video_path: ruta,
+              user_id: usuario.id
+            });
+
+        if (respuesta.error) throw respuesta.error;
+
+        avisoLike.textContent = existente
+          ? "Quitaste tu Me gusta."
+          : "¡Guardamos tu Me gusta! Pulsa otra vez para quitarlo.";
+
+        await actualizarLikes();
+      } catch (error) {
+        avisoLike.textContent = error.code === "23505"
+          ? "Ya habías dado Me gusta. Actualiza los videos."
+          : error.message || "No se pudo conectar. Intenta otra vez.";
+      } finally {
+        likeOcupado = false;
+        botonLike.disabled = false;
+      }
+    });
+
+    async function contarComentarios() {
+      const { count, error } = await cliente
+        .from("dino_comments")
+        .select("*", { count: "exact", head: true })
+        .eq("video_path", ruta);
+
+      if (error) throw error;
+      resumen.textContent = "💬 Comentarios · " + count;
+    }
+
+    function bloquearComentarios(valor) {
+      comentariosOcupados = valor;
+      actualizar.disabled = valor;
+      mas.disabled = valor;
+      enviar.disabled = valor;
+      texto.disabled = valor;
+
+      botonesBorrar.forEach(function (boton) {
+        boton.disabled = valor;
+      });
+    }
+
+    async function ejecutarComentario(accion) {
+      if (comentariosOcupados) return;
+
+      bloquearComentarios(true);
+      aviso.textContent = "Cargando…";
+
+      try {
+        await accion();
+      } catch (error) {
+        aviso.textContent =
+          error.message || "No se pudo conectar. Intenta otra vez.";
+      } finally {
+        bloquearComentarios(false);
+      }
+    }
+
+    async function cargarComentarios(reiniciar) {
+      const inicio = reiniciar ? 0 : offset;
+
+      const { data, error } = await cliente
+        .from("dino_comments")
+        .select("id, user_id, body, created_at")
+        .eq("video_path", ruta)
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false })
+        .range(inicio, inicio + 9);
+
+      if (error) throw error;
+
+      if (reiniciar) {
+        lista.replaceChildren();
+        botonesBorrar.clear();
+      }
+
+      const comentarios = data || [];
+
+      comentarios.forEach(function (comentario) {
+        const bloque = crearElemento("div");
+        bloque.style.borderTop = "1px solid #444";
+        bloque.style.padding = "12px 0";
+        bloque.style.textAlign = "left";
+
+        const autor = crearElemento("strong", "Usuario de Dino");
+        const contenido = crearElemento("p", comentario.body);
+        contenido.style.whiteSpace = "pre-wrap";
+        contenido.style.overflowWrap = "anywhere";
+
+        const fecha = crearElemento(
+          "small",
+          new Date(comentario.created_at).toLocaleString("es")
+        );
+
+        bloque.append(autor, contenido, fecha);
+
+        if (
+          typeof sesion !== "undefined" &&
+          sesion?.user?.id === comentario.user_id
+        ) {
+          const borrar = crearElemento("button", "Borrar mi comentario");
+          borrar.type = "button";
+          botonesBorrar.add(borrar);
+
+          borrar.addEventListener("click", function () {
+            ejecutarComentario(async function () {
+              const usuario = await usuarioActual();
+
+              const { error: errorBorrar } = await cliente
+                .from("dino_comments")
+                .delete()
+                .eq("id", comentario.id)
+                .eq("user_id", usuario.id);
+
+              if (errorBorrar) throw errorBorrar;
+              await cargarComentarios(true);
+            });
+          });
+
+          bloque.appendChild(borrar);
+        }
+
+        lista.appendChild(bloque);
+      });
+
+      offset = inicio + comentarios.length;
+      mas.hidden = comentarios.length < 10;
+
+      aviso.textContent = offset
+        ? "Mostrando " + offset + " comentarios."
+        : "Todavía no hay comentarios. ¡Escribe el primero!";
+
+      await contarComentarios();
+    }
+
+    detalles.addEventListener("toggle", function () {
+      if (detalles.open) {
+        ejecutarComentario(function () {
+          return cargarComentarios(true);
+        });
+      }
+    });
+
+    actualizar.addEventListener("click", function () {
+      ejecutarComentario(function () {
+        return cargarComentarios(true);
+      });
+    });
+
+    mas.addEventListener("click", function () {
+      ejecutarComentario(function () {
+        return cargarComentarios(false);
+      });
+    });
+
+    formulario.addEventListener("submit", function (evento) {
+      evento.preventDefault();
+
+      const contenido = texto.value.trim();
+
+      if (!contenido) {
+        aviso.textContent = "Escribe un comentario antes de publicarlo.";
+        return;
+      }
+
+      ejecutarComentario(async function () {
+        const usuario = await usuarioActual();
+
+        const { error } = await cliente
+          .from("dino_comments")
+          .insert({
+            video_path: ruta,
+            user_id: usuario.id,
+            body: contenido
+          });
+
+        if (error) throw error;
+
+        texto.value = "";
+        await cargarComentarios(true);
+      });
+    });
+
+    actualizarLikes().catch(function (error) {
+      avisoLike.textContent =
+        "No se pudieron cargar los Me gusta: " + error.message;
+    });
+
+    contarComentarios().catch(function (error) {
+      aviso.textContent =
+        "No se pudieron cargar los comentarios: " + error.message;
+    });
+  }
+
+  function revisarGaleria() {
+    galeria.querySelectorAll("article").forEach(preparar);
+  }
+
+  new MutationObserver(revisarGaleria).observe(galeria, {
+    childList: true
+  });
+
+  revisarGaleria();
+})();
+</script>
+    
 </body>
 </html>
