@@ -3,13 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
   <title>Dino - Videos cortos</title>
 
   <style>
-    * {
-      box-sizing: border-box;
-    }
+    * { box-sizing: border-box; }
 
     body {
       margin: 0;
@@ -37,8 +34,14 @@
       padding: 20px;
     }
 
-    h1 {
-      font-size: 28px;
+    h1 { font-size: 28px; }
+
+    .tarjeta {
+      border: 1px solid #444;
+      border-radius: 12px;
+      padding: 20px;
+      margin: 25px auto;
+      max-width: 420px;
     }
 
     button {
@@ -53,8 +56,8 @@
     }
 
     button:disabled {
-      opacity: 0.6;
-      cursor: wait;
+      opacity: 0.5;
+      cursor: not-allowed;
     }
 
     input {
@@ -75,22 +78,18 @@
       text-align: left;
     }
 
-    .tarjeta {
-      border: 1px solid #444;
-      border-radius: 12px;
-      padding: 20px;
-      margin: 25px auto;
-      max-width: 420px;
-    }
-
     video {
       width: 100%;
       margin-top: 15px;
       border-radius: 8px;
     }
 
-    .mensaje {
-      line-height: 1.5;
+    p { line-height: 1.5; }
+
+    .mensaje { overflow-wrap: anywhere; }
+
+    a {
+      color: #ff938c;
       overflow-wrap: anywhere;
     }
 
@@ -99,15 +98,12 @@
       color: #aaa;
     }
 
-    [hidden] {
-      display: none !important;
-    }
+    [hidden] { display: none !important; }
   </style>
 </head>
 
 <body>
-  <header>T-Rex: 🦖 DINO 😎</header>
-
+  <header>🦖 DINO 😎</header>
   <div class="dinosaurio" aria-hidden="true">🦖😎</div>
 
   <main>
@@ -115,8 +111,8 @@
     <h2>Historias que te mueven</h2>
     <p>Videos cortos: historias, emociones y momentos que nos conectan.</p>
 
-    <section class="tarjeta" aria-labelledby="tituloCuenta">
-      <h2 id="tituloCuenta">Tu cuenta de Dino</h2>
+    <section class="tarjeta">
+      <h2>Tu cuenta de Dino</h2>
 
       <p id="estadoCuenta" class="mensaje" role="status">
         Conectando…
@@ -127,8 +123,8 @@
         <input
           type="email"
           id="correo"
-          placeholder="Escribe tu correo"
           autocomplete="email"
+          placeholder="Escribe tu correo"
           required
         >
 
@@ -136,8 +132,8 @@
         <input
           type="password"
           id="contrasena"
-          placeholder="Escribe tu contraseña"
           autocomplete="current-password"
+          placeholder="Escribe tu contraseña"
           required
         >
 
@@ -157,28 +153,30 @@
       <p id="mensajeCuenta" class="mensaje" role="status"></p>
     </section>
 
-    <section class="tarjeta" aria-labelledby="tituloVideo">
-      <h2 id="tituloVideo">🎬 Prueba tu video</h2>
-
-      <p>Selecciona un video para previsualizarlo.</p>
+    <section class="tarjeta">
+      <h2>🎬 Publica tu video</h2>
+      <p>Selecciona un video de hasta 50 MB.</p>
 
       <label for="videoArchivo">Seleccionar video</label>
-      <input
-        type="file"
-        id="videoArchivo"
-        accept="video/*"
-      >
+      <input type="file" id="videoArchivo" accept="video/*">
 
-      <video
-        id="reproductor"
-        controls
-        playsinline
-        hidden
-      ></video>
+      <video id="reproductor" controls playsinline hidden></video>
+
+      <p>
+        Al pulsar Publicar video, se guardará y podrá verlo
+        cualquier persona que tenga el enlace.
+      </p>
+
+      <button type="button" id="botonPublicar" disabled>
+        Publicar video
+      </button>
 
       <p id="mensajeVideo" class="mensaje" role="status"></p>
 
-      <p>Esta vista previa no guarda ni publica el video.</p>
+      <div id="resultado" hidden>
+        <p>Tu video está guardado. Copia este enlace para compartirlo:</p>
+        <a id="enlaceVideo" target="_blank" rel="noopener noreferrer"></a>
+      </div>
     </section>
   </main>
 
@@ -187,240 +185,296 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <script>
-    const formulario = document.getElementById("formularioCuenta");
-    const correo = document.getElementById("correo");
-    const contrasena = document.getElementById("contrasena");
-    const botonCrear = document.getElementById("botonCrear");
-    const botonEntrar = document.getElementById("botonEntrar");
-    const botonSalir = document.getElementById("botonSalir");
-    const estadoCuenta = document.getElementById("estadoCuenta");
-    const mensajeCuenta = document.getElementById("mensajeCuenta");
+    const $ = (id) => document.getElementById(id);
 
-    let supabaseClient = null;
+    const formulario = $("formularioCuenta");
+    const correo = $("correo");
+    const contrasena = $("contrasena");
+    const entrar = $("botonEntrar");
+    const crear = $("botonCrear");
+    const salir = $("botonSalir");
+    const estado = $("estadoCuenta");
+    const mensajeCuenta = $("mensajeCuenta");
 
-    function mostrarSesion(session) {
-      const conectado = Boolean(session && session.user);
+    const selector = $("videoArchivo");
+    const reproductor = $("reproductor");
+    const publicar = $("botonPublicar");
+    const mensajeVideo = $("mensajeVideo");
+    const resultado = $("resultado");
+    const enlace = $("enlaceVideo");
 
-      formulario.hidden = conectado;
-      botonSalir.hidden = !conectado;
+    let cliente = null;
+    let sesion = null;
+    let archivoElegido = null;
+    let urlLocal = null;
+    let ocupado = false;
+    let subiendo = false;
+    let listo = false;
 
-      estadoCuenta.textContent = conectado
-        ? "Sesión iniciada: " + (session.user.email || "Usuario de Dino")
+    function actualizarBotones() {
+      entrar.disabled = !listo || ocupado || subiendo;
+      crear.disabled = !listo || ocupado || subiendo;
+      salir.disabled = !listo || ocupado || subiendo;
+      selector.disabled = subiendo;
+
+      publicar.disabled =
+        !listo || !sesion || !archivoElegido || ocupado || subiendo;
+    }
+
+    function mostrarSesion(nuevaSesion) {
+      sesion = nuevaSesion;
+      formulario.hidden = Boolean(sesion);
+      salir.hidden = !sesion;
+
+      estado.textContent = sesion
+        ? "Sesión iniciada: " + (sesion.user.email || "Usuario de Dino")
         : "Crea una cuenta o inicia sesión.";
+
+      actualizarBotones();
     }
 
-    function cambiarEspera(esperando) {
-      botonCrear.disabled = esperando;
-      botonEntrar.disabled = esperando;
-      botonSalir.disabled = esperando;
+    function explicarError(error) {
+      return error && error.message
+        ? error.message
+        : "Revisa tu conexión e intenta otra vez.";
     }
 
-    function obtenerDatos(esRegistro) {
+    async function gestionarCuenta(esRegistro) {
+      if (!listo || ocupado || subiendo) return;
+
       correo.value = correo.value.trim();
-      contrasena.setCustomValidity("");
-
-      if (!formulario.reportValidity()) {
-        return null;
-      }
+      if (!formulario.reportValidity()) return;
 
       if (esRegistro && contrasena.value.length < 6) {
-        contrasena.setCustomValidity(
-          "La contraseña debe tener al menos 6 caracteres."
-        );
-        contrasena.reportValidity();
-        return null;
+        mensajeCuenta.textContent =
+          "La contraseña debe tener al menos 6 caracteres.";
+        return;
       }
 
-      return {
-        email: correo.value,
-        password: contrasena.value
-      };
-    }
-
-    contrasena.addEventListener("input", function () {
-      contrasena.setCustomValidity("");
-    });
-
-    botonCrear.addEventListener("click", async function () {
-      if (!supabaseClient) return;
-
-      const datos = obtenerDatos(true);
-      if (!datos) return;
-
-      cambiarEspera(true);
-      mensajeCuenta.textContent = "Creando cuenta…";
+      ocupado = true;
+      actualizarBotones();
+      mensajeCuenta.textContent = esRegistro
+        ? "Creando cuenta…"
+        : "Iniciando sesión…";
 
       try {
-        const { data, error } = await supabaseClient.auth.signUp(datos);
+        const datos = {
+          email: correo.value,
+          password: contrasena.value
+        };
 
-        if (error) {
-          mensajeCuenta.textContent =
-            "No se pudo crear la cuenta: " + error.message;
-          return;
-        }
+        const respuesta = esRegistro
+          ? await cliente.auth.signUp(datos)
+          : await cliente.auth.signInWithPassword(datos);
+
+        if (respuesta.error) throw respuesta.error;
 
         contrasena.value = "";
 
-        if (data.session) {
-          mostrarSesion(data.session);
-          mensajeCuenta.textContent = "¡Bienvenido a Dino!";
+        if (respuesta.data.session) {
+          mostrarSesion(respuesta.data.session);
+          mensajeCuenta.textContent = "¡Iniciaste sesión en Dino!";
         } else {
           mensajeCuenta.textContent =
             "Solicitud enviada. Revisa tu correo para confirmar la cuenta. " +
             "Si ya tenías una cuenta, usa Iniciar sesión.";
         }
-      } catch {
-        mensajeCuenta.textContent =
-          "No se pudo conectar. Revisa tu conexión e intenta otra vez.";
+      } catch (error) {
+        mensajeCuenta.textContent = explicarError(error);
       } finally {
-        cambiarEspera(false);
+        ocupado = false;
+        actualizarBotones();
       }
-    });
+    }
 
-    formulario.addEventListener("submit", async function (evento) {
+    formulario.addEventListener("submit", function (evento) {
       evento.preventDefault();
-
-      if (!supabaseClient) return;
-
-      const datos = obtenerDatos(false);
-      if (!datos) return;
-
-      cambiarEspera(true);
-      mensajeCuenta.textContent = "Iniciando sesión…";
-
-      try {
-        const { data, error } =
-          await supabaseClient.auth.signInWithPassword(datos);
-
-        if (error) {
-          mensajeCuenta.textContent =
-            "No se pudo iniciar sesión: " + error.message;
-          return;
-        }
-
-        contrasena.value = "";
-        mostrarSesion(data.session);
-        mensajeCuenta.textContent = "¡Iniciaste sesión en Dino!";
-      } catch {
-        mensajeCuenta.textContent =
-          "No se pudo conectar. Revisa tu conexión e intenta otra vez.";
-      } finally {
-        cambiarEspera(false);
-      }
+      gestionarCuenta(false);
     });
 
-    botonSalir.addEventListener("click", async function () {
-      if (!supabaseClient) return;
+    crear.addEventListener("click", function () {
+      gestionarCuenta(true);
+    });
 
-      cambiarEspera(true);
-      mensajeCuenta.textContent = "Cerrando sesión…";
+    salir.addEventListener("click", async function () {
+      if (!listo || ocupado || subiendo) return;
+
+      ocupado = true;
+      actualizarBotones();
 
       try {
-        const { error } = await supabaseClient.auth.signOut();
-
-        if (error) {
-          mensajeCuenta.textContent =
-            "No se pudo cerrar la sesión: " + error.message;
-          return;
-        }
+        const { error } = await cliente.auth.signOut();
+        if (error) throw error;
 
         mostrarSesion(null);
         contrasena.value = "";
         mensajeCuenta.textContent = "Cerraste la sesión.";
-      } catch {
-        mensajeCuenta.textContent =
-          "No se pudo conectar. Intenta otra vez.";
+        resultado.hidden = true;
+        enlace.removeAttribute("href");
+        enlace.textContent = "";
+      } catch (error) {
+        mensajeCuenta.textContent = explicarError(error);
       } finally {
-        cambiarEspera(false);
+        ocupado = false;
+        actualizarBotones();
       }
     });
 
-    async function conectarCuenta() {
-      try {
-        if (!window.supabase) {
-          throw new Error("No se pudo cargar Supabase.");
-        }
-
-        const SUPABASE_URL =
-          "https://vlshhaarprrddzffrbsr.supabase.co";
-
-        const SUPABASE_PUBLISHABLE_KEY =
-          "sb_publishable_A-jWpub5-oPjDXd9Zw-BJg_49AJdC9Q";
-
-        supabaseClient = window.supabase.createClient(
-          SUPABASE_URL,
-          SUPABASE_PUBLISHABLE_KEY
-        );
-
-        supabaseClient.auth.onAuthStateChange(function (evento, session) {
-          mostrarSesion(session);
-        });
-
-        const { data, error } = await supabaseClient.auth.getSession();
-
-        if (error) throw error;
-
-        mostrarSesion(data.session);
-        cambiarEspera(false);
-      } catch {
-        estadoCuenta.textContent =
-          "No se pudo conectar con las cuentas de Dino. Recarga la página.";
-        mensajeCuenta.textContent =
-          "Si el problema continúa, revisa la dirección y la clave pública de Supabase.";
-      }
-    }
-
-    const selector = document.getElementById("videoArchivo");
-    const reproductor = document.getElementById("reproductor");
-    const mensajeVideo = document.getElementById("mensajeVideo");
-
-    let urlVideo = null;
-
-    function limpiarVideo() {
+    function limpiarVistaPrevia() {
       reproductor.pause();
       reproductor.removeAttribute("src");
       reproductor.load();
       reproductor.hidden = true;
 
-      if (urlVideo) {
-        URL.revokeObjectURL(urlVideo);
-        urlVideo = null;
+      if (urlLocal) {
+        URL.revokeObjectURL(urlLocal);
+        urlLocal = null;
       }
     }
 
     selector.addEventListener("change", function () {
-      limpiarVideo();
+      limpiarVistaPrevia();
+      resultado.hidden = true;
+      archivoElegido = null;
       mensajeVideo.textContent = "";
 
       const archivo = selector.files[0];
-      if (!archivo) return;
 
-      if (archivo.type && !archivo.type.startsWith("video/")) {
-        mensajeVideo.textContent = "Selecciona un archivo de video.";
-        selector.value = "";
+      if (!archivo) {
+        actualizarBotones();
         return;
       }
 
-      urlVideo = URL.createObjectURL(archivo);
-      reproductor.src = urlVideo;
-      reproductor.hidden = false;
+      if (!archivo.type.startsWith("video/")) {
+        mensajeVideo.textContent =
+          "El navegador no reconoce este archivo como video. Prueba un MP4.";
+      } else if (archivo.size === 0) {
+        mensajeVideo.textContent = "El archivo está vacío.";
+      } else if (archivo.size > 50 * 1024 * 1024) {
+        mensajeVideo.textContent =
+          "El video supera el límite de 50 MB. Selecciona uno más pequeño.";
+      } else {
+        archivoElegido = archivo;
+        urlLocal = URL.createObjectURL(archivo);
+        reproductor.src = urlLocal;
+        reproductor.hidden = false;
 
+        mensajeVideo.textContent = sesion
+          ? "Vista previa lista. Pulsa Publicar video para guardarlo."
+          : "Vista previa lista. Inicia sesión para publicarlo.";
+      }
+
+      actualizarBotones();
+    });
+
+    publicar.addEventListener("click", async function () {
+      if (!listo || !archivoElegido || subiendo || ocupado) return;
+
+      const archivo = archivoElegido;
+      subiendo = true;
+      resultado.hidden = true;
+      actualizarBotones();
       mensajeVideo.textContent =
-        "Tu video está listo para previsualizarse.";
+        "Subiendo video… Mantén esta página abierta.";
+
+      try {
+        const { data: usuario, error: errorUsuario } =
+          await cliente.auth.getUser();
+
+        if (errorUsuario) throw errorUsuario;
+        if (!usuario.user) {
+          throw new Error("Inicia sesión para publicar tu video.");
+        }
+
+        const extensiones = {
+          "video/mp4": "mp4",
+          "video/webm": "webm",
+          "video/quicktime": "mov",
+          "video/ogg": "ogv"
+        };
+
+        const coincidencia = archivo.name.match(/\.([a-z0-9]{1,10})$/i);
+        const extension = extensiones[archivo.type] ||
+          (coincidencia ? coincidencia[1].toLowerCase() : "video");
+
+        const ruta =
+          usuario.user.id + "/" + crypto.randomUUID() + "." + extension;
+
+        const { data, error } = await cliente.storage
+          .from("videos")
+          .upload(ruta, archivo, {
+            contentType: archivo.type,
+            cacheControl: "3600",
+            upsert: false
+          });
+
+        if (error) throw error;
+
+        const { data: datosEnlace } = cliente.storage
+          .from("videos")
+          .getPublicUrl(data.path);
+
+        enlace.href = datosEnlace.publicUrl;
+        enlace.textContent = datosEnlace.publicUrl;
+        resultado.hidden = false;
+
+        mensajeVideo.textContent = "¡Tu video se guardó en Dino!";
+        archivoElegido = null;
+        selector.value = "";
+      } catch (error) {
+        mensajeVideo.textContent =
+          "No se pudo completar la publicación: " + explicarError(error);
+      } finally {
+        subiendo = false;
+        actualizarBotones();
+      }
     });
 
     reproductor.addEventListener("error", function () {
       if (reproductor.getAttribute("src")) {
         mensajeVideo.textContent =
-          "Este video no se puede reproducir en tu navegador. Prueba otro formato.";
+          "Este navegador no puede reproducir el video. Prueba un MP4.";
       }
     });
 
-    window.addEventListener("beforeunload", function () {
-      if (urlVideo) URL.revokeObjectURL(urlVideo);
+    window.addEventListener("beforeunload", function (evento) {
+      if (subiendo) {
+        evento.preventDefault();
+        evento.returnValue = "";
+      }
     });
 
-    conectarCuenta();
+    window.addEventListener("pagehide", function () {
+      if (urlLocal) URL.revokeObjectURL(urlLocal);
+    });
+
+    async function iniciar() {
+      try {
+        if (!window.supabase) {
+          throw new Error("No se pudo cargar Supabase. Recarga la página.");
+        }
+
+        cliente = window.supabase.createClient(
+          "https://vlshhaarprrddzffrbsr.supabase.co",
+          "sb_publishable_A-jWpub5-oPjDXd9Zw-BJg_49AJdC9Q"
+        );
+
+        cliente.auth.onAuthStateChange(function (evento, nuevaSesion) {
+          mostrarSesion(nuevaSesion);
+        });
+
+        const { data, error } = await cliente.auth.getSession();
+        if (error) throw error;
+
+        listo = true;
+        mostrarSesion(data.session);
+      } catch (error) {
+        estado.textContent = "No se pudo conectar con Dino.";
+        mensajeCuenta.textContent = explicarError(error);
+      }
+    }
+
+    iniciar();
   </script>
 </body>
 </html>
